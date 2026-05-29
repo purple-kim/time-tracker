@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Time Tracker</title>
+    <link rel="stylesheet" href="./styles.css?v=55" />
+  </head>
+  <body>
+    <main class="floating-widget" aria-label="Floating focus character">
+      <div class="time-badge" aria-live="polite">
+        <span>WORK TIME</span>
+        <strong id="workTimeLabel">00:00:00</strong>
+        <small id="calendarLabel">다음 일정 확인 중</small>
+      </div>
+
+      <div class="agent-stage" aria-hidden="true">
+        <span class="agent-sprite"></span>
+        <span class="agent-shadow"></span>
+      </div>
+
+      <div class="tiny-controls" aria-label="Work timer controls">
+        <button id="toggleButton" type="button">시작</button>
+        <button id="resetButton" type="button">끝내기</button>
+      </div>
+    </main>
+
+    <script src="./calendar-data.js?v=2" defer></script>
+    <script src="./main.js?v=55" defer></script>
+  </body>
+</html>
