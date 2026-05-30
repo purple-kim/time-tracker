@@ -62,8 +62,8 @@ const expressionSprite = {
 const behaviorPolicy = {
   startDelay: 14000,
   expressionDuration: 2000,
-  normalEventInterval: 13300,
-  longWorkEventInterval: 10000,
+  normalEventInterval: 25000,
+  longWorkEventInterval: 18000,
   longWorkAfter: 20 * 60,
   startledCooldown: 10 * 60 * 1000
 };
