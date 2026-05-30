@@ -47,4 +47,3 @@ assets/
 ## 참고
 
 - 이 앱은 Electron 기반 데스크탑 앱입니다.
-- `node_modules/`와 `unused-assets-archive/`는 Git에 포함하지 않습니다.
