@@ -6,7 +6,8 @@ unused-assets-archive/
 **/.DS_Store
 
 dist/
-build/
+build/*
+!build/icon.png
 out/
 release/
 
