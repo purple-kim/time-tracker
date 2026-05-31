@@ -4,10 +4,12 @@ const els = {
   workTime: document.querySelector("#workTimeLabel"),
   calendar: document.querySelector("#calendarLabel"),
   toggle: document.querySelector("#toggleButton"),
-  reset: document.querySelector("#resetButton")
+  reset: document.querySelector("#resetButton"),
+  calendarButton: document.querySelector("#calendarButton")
 };
 
 const isDesktopApp = Boolean(window.electronAgent?.moveWindowBy);
+const canConnectCalendar = Boolean(window.electronAgent?.connectCalendar);
 document.body.classList.toggle("desktop-app", isDesktopApp);
 
 const testMode = new URLSearchParams(window.location.search).get("test");
@@ -68,13 +70,18 @@ const behaviorPolicy = {
   startledCooldown: 10 * 60 * 1000
 };
 
+const preloadedSpriteImages = [];
+
 function preloadSpriteImages() {
   [
     expressionSprite.src,
     ...Object.values(actionSprites).map((sprite) => sprite.src)
   ].forEach((src) => {
     const img = new Image();
+    img.decoding = "async";
+    preloadedSpriteImages.push(img);
     img.src = src;
+    if (img.decode) img.decode().catch(() => {});
   });
 }
 
@@ -98,6 +105,13 @@ const state = {
     offsetY: 0,
     lastScreenX: 0,
     lastScreenY: 0
+  },
+  calendar: {
+    loading: false,
+    configured: false,
+    connected: false,
+    events: [],
+    error: ""
   }
 };
 
@@ -179,10 +193,12 @@ function formatRelativeTime(ms) {
 }
 
 function getCalendarEvents() {
-  const source = window.__FOCUS_AGENT_CALENDAR__;
-  if (!source?.events?.length) return [];
+  const localEvents = window.__FOCUS_AGENT_CALENDAR__?.events || [];
+  const dynamicEvents = state.calendar.events || [];
+  const events = dynamicEvents.length ? dynamicEvents : localEvents;
+  if (!events.length) return [];
 
-  return source.events
+  return events
     .filter((event) => event.transparency !== "transparent" && event.responseStatus !== "declined")
     .map((event) => ({
       ...event,
@@ -206,7 +222,21 @@ function hasUpcomingEventSoon(now = new Date()) {
 function updateCalendarLabel() {
   const events = getCalendarEvents();
   if (!events.length) {
-    els.calendar.textContent = "다음 일정 없음";
+    if (state.calendar.loading) {
+      els.calendar.textContent = "캘린더 확인 중";
+    } else if (!state.calendar.configured && state.calendar.error && canConnectCalendar) {
+      els.calendar.textContent = "캘린더 설정 필요";
+      els.calendar.title = state.calendar.error;
+    } else if (state.calendar.error && canConnectCalendar) {
+      els.calendar.textContent = "캘린더 연결 실패";
+      els.calendar.title = state.calendar.error;
+    } else if (state.calendar.configured && !state.calendar.connected) {
+      els.calendar.textContent = "캘린더 연결 필요";
+      els.calendar.title = "캘린더 버튼을 눌러 Google Calendar를 연결하세요.";
+    } else {
+      els.calendar.textContent = "다음 일정 없음";
+      els.calendar.removeAttribute("title");
+    }
     return;
   }
 
@@ -239,6 +269,18 @@ function updateControls() {
   els.toggle.textContent = state.running ? "일시정지" : state.elapsed > 0 ? "다시 시작" : "시작";
   els.reset.textContent = state.running ? "끝내기" : state.elapsed > 0 ? "초기화" : "끝내기";
   els.widget.classList.toggle("working", state.running);
+
+  if (!els.calendarButton) return;
+  els.calendarButton.hidden = !canConnectCalendar;
+  els.calendarButton.disabled = state.calendar.loading;
+  els.calendarButton.dataset.connected = state.calendar.connected ? "true" : "false";
+  els.calendarButton.setAttribute(
+    "aria-label",
+    state.calendar.connected ? "Google Calendar 연결 해제" : "Google Calendar 연결"
+  );
+  els.calendarButton.title = state.calendar.connected
+    ? "Google Calendar 연결 해제"
+    : "Google Calendar 연결";
 }
 
 function showFrame(frame) {
@@ -469,8 +511,72 @@ function endDrag(event) {
   if (!isDesktopApp) saveWidgetPosition();
 }
 
+function applyCalendarState(nextState) {
+  state.calendar = {
+    ...state.calendar,
+    loading: false,
+    configured: Boolean(nextState?.configured),
+    connected: Boolean(nextState?.connected),
+    events: nextState?.events || [],
+    error: nextState?.error || ""
+  };
+  updateControls();
+  updateCalendarLabel();
+}
+
+function pulseCalendarFeedback() {
+  const badge = els.calendar.closest(".time-badge");
+  if (!badge) return;
+  badge.classList.remove("calendar-feedback");
+  void badge.offsetWidth;
+  badge.classList.add("calendar-feedback");
+}
+
+async function loadCalendarState() {
+  if (!canConnectCalendar) {
+    updateCalendarLabel();
+    return;
+  }
+  state.calendar.loading = true;
+  updateCalendarLabel();
+  try {
+    applyCalendarState(await window.electronAgent.getCalendarState());
+  } catch (error) {
+    applyCalendarState({
+      configured: false,
+      connected: false,
+      events: [],
+      error: error.message || "캘린더 상태를 가져오지 못했습니다."
+    });
+  }
+}
+
+async function toggleCalendarConnection() {
+  if (!canConnectCalendar || state.calendar.loading) return;
+  state.calendar.loading = true;
+  updateControls();
+  updateCalendarLabel();
+
+  try {
+    const nextState = state.calendar.connected
+      ? await window.electronAgent.disconnectCalendar()
+      : await window.electronAgent.connectCalendar();
+    applyCalendarState(nextState);
+    pulseCalendarFeedback();
+  } catch (error) {
+    applyCalendarState({
+      configured: state.calendar.configured,
+      connected: false,
+      events: [],
+      error: error.message || "Google Calendar 연결에 실패했습니다."
+    });
+    pulseCalendarFeedback();
+  }
+}
+
 els.toggle.addEventListener("click", toggle);
 els.reset.addEventListener("click", reset);
+els.calendarButton?.addEventListener("click", toggleCalendarConnection);
 els.widget.addEventListener("pointerdown", startDrag);
 els.widget.addEventListener("pointermove", moveDrag);
 els.widget.addEventListener("pointerup", endDrag);
@@ -485,10 +591,16 @@ window.addEventListener("resize", () => {
 });
 
 state.timerId = setInterval(tick, 1000);
-setInterval(updateCalendarLabel, 60000);
+setInterval(() => {
+  if (state.calendar.connected && canConnectCalendar) {
+    loadCalendarState();
+    return;
+  }
+  updateCalendarLabel();
+}, 60000);
 preloadSpriteImages();
 updateControls();
-updateCalendarLabel();
+loadCalendarState();
 if (actionTestMode) {
   const testActions = [actionSprites.typing, frames.colaAction, frames.sleepyAction, frames.angryAction];
   let actionIndex = 0;

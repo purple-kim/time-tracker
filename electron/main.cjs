@@ -1,8 +1,16 @@
-const { app, BrowserWindow, ipcMain, screen } = require("electron");
+const { app, BrowserWindow, ipcMain, screen, shell } = require("electron");
+const crypto = require("node:crypto");
+const fs = require("node:fs/promises");
+const http = require("node:http");
 const path = require("node:path");
+const { URL } = require("node:url");
 
 const WINDOW_WIDTH = 320;
 const WINDOW_HEIGHT = 520;
+const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+const GOOGLE_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
+const GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
 
 let mainWindow;
 
@@ -59,4 +67,287 @@ ipcMain.on("move-window-by", (_event, delta) => {
     x: Math.round(bounds.x + delta.x),
     y: Math.round(bounds.y + delta.y)
   });
+});
+
+function getTokenPath() {
+  return path.join(app.getPath("userData"), "google-calendar-token.json");
+}
+
+async function readJsonFile(filePath) {
+  try {
+    return JSON.parse(await fs.readFile(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+async function readGoogleConfig() {
+  const candidates = [
+    path.join(app.getPath("userData"), "google-calendar-config.json"),
+    path.join(app.getAppPath(), "google-calendar-config.json"),
+    path.join(process.cwd(), "google-calendar-config.json")
+  ];
+
+  for (const candidate of candidates) {
+    const config = await readJsonFile(candidate);
+    if (config?.clientId && !config.clientId.includes("YOUR_GOOGLE")) {
+      return { clientId: config.clientId, clientSecret: config.clientSecret || "", path: candidate };
+    }
+    if (config?.installed?.client_id && !config.installed.client_id.includes("YOUR_GOOGLE")) {
+      return {
+        clientId: config.installed.client_id,
+        clientSecret: config.installed.client_secret || "",
+        path: candidate
+      };
+    }
+  }
+
+  return null;
+}
+
+async function readToken() {
+  return readJsonFile(getTokenPath());
+}
+
+async function writeToken(token) {
+  await fs.mkdir(app.getPath("userData"), { recursive: true });
+  await fs.writeFile(getTokenPath(), JSON.stringify(token, null, 2));
+}
+
+async function removeToken() {
+  try {
+    await fs.unlink(getTokenPath());
+  } catch {
+    // The user may disconnect before ever connecting.
+  }
+}
+
+function createCodeVerifier() {
+  return crypto.randomBytes(64).toString("base64url");
+}
+
+function createCodeChallenge(verifier) {
+  return crypto.createHash("sha256").update(verifier).digest("base64url");
+}
+
+async function postForm(url, data) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(data)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error_description || payload.error || "Google API request failed");
+  }
+  return payload;
+}
+
+function normalizeToken(payload, previousToken = {}) {
+  return {
+    accessToken: payload.access_token || previousToken.accessToken,
+    refreshToken: payload.refresh_token || previousToken.refreshToken,
+    expiresAt: Date.now() + Math.max(30, payload.expires_in || 3600) * 1000,
+    scope: payload.scope || previousToken.scope || GOOGLE_CALENDAR_SCOPE,
+    tokenType: payload.token_type || previousToken.tokenType || "Bearer"
+  };
+}
+
+async function refreshAccessToken(token, config) {
+  if (!token?.refreshToken) return null;
+  if (token.accessToken && token.expiresAt && token.expiresAt - Date.now() > 60 * 1000) {
+    return token;
+  }
+
+  const payload = await postForm(GOOGLE_TOKEN_URL, {
+    client_id: config.clientId,
+    ...(config.clientSecret ? { client_secret: config.clientSecret } : {}),
+    refresh_token: token.refreshToken,
+    grant_type: "refresh_token"
+  });
+  const refreshedToken = normalizeToken(payload, token);
+  await writeToken(refreshedToken);
+  return refreshedToken;
+}
+
+function createOAuthServer(expectedState, resolve, reject) {
+  const server = http.createServer((request, response) => {
+    const requestUrl = new URL(request.url, "http://127.0.0.1");
+    if (requestUrl.pathname !== "/oauth2callback") {
+      response.writeHead(404);
+      response.end("Not found");
+      return;
+    }
+
+    const error = requestUrl.searchParams.get("error");
+    const code = requestUrl.searchParams.get("code");
+    const state = requestUrl.searchParams.get("state");
+
+    response.writeHead(error ? 400 : 200, { "Content-Type": "text/html; charset=utf-8" });
+    response.end(`
+      <!doctype html>
+      <html lang="ko">
+        <head><meta charset="utf-8"><title>Time Tracker</title></head>
+        <body style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 32px;">
+          <h1>${error ? "연결 실패" : "연결 완료"}</h1>
+          <p>${error ? "Google Calendar 연결을 완료하지 못했습니다." : "이 창을 닫고 Time Tracker로 돌아가세요."}</p>
+        </body>
+      </html>
+    `);
+
+    server.close();
+
+    if (error) {
+      reject(new Error(error));
+      return;
+    }
+    if (!code || state !== expectedState) {
+      reject(new Error("Invalid Google OAuth response"));
+      return;
+    }
+    resolve(code);
+  });
+
+  return server;
+}
+
+async function requestAuthorizationCode(config) {
+  const verifier = createCodeVerifier();
+  const challenge = createCodeChallenge(verifier);
+  const state = crypto.randomBytes(16).toString("hex");
+
+  return new Promise((resolve, reject) => {
+    const server = createOAuthServer(state, (code) => {
+      resolve({ code, verifier, redirectUri });
+    }, reject);
+
+    let redirectUri = "";
+
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      redirectUri = `http://127.0.0.1:${port}/oauth2callback`;
+      const url = new URL(GOOGLE_AUTH_URL);
+      url.searchParams.set("client_id", config.clientId);
+      url.searchParams.set("redirect_uri", redirectUri);
+      url.searchParams.set("response_type", "code");
+      url.searchParams.set("scope", GOOGLE_CALENDAR_SCOPE);
+      url.searchParams.set("access_type", "offline");
+      url.searchParams.set("prompt", "consent");
+      url.searchParams.set("code_challenge", challenge);
+      url.searchParams.set("code_challenge_method", "S256");
+      url.searchParams.set("state", state);
+      shell.openExternal(url.toString());
+    });
+
+    server.on("error", reject);
+    setTimeout(() => {
+      server.close();
+      reject(new Error("Google Calendar connection timed out"));
+    }, 2 * 60 * 1000);
+  });
+}
+
+async function connectGoogleCalendar() {
+  const config = await readGoogleConfig();
+  if (!config) {
+    return {
+      configured: false,
+      connected: false,
+      events: [],
+      error: "google-calendar-config.json에 Google OAuth Client ID를 설정해야 합니다."
+    };
+  }
+
+  const { code, verifier, redirectUri } = await requestAuthorizationCode(config);
+  const payload = await postForm(GOOGLE_TOKEN_URL, {
+    client_id: config.clientId,
+    ...(config.clientSecret ? { client_secret: config.clientSecret } : {}),
+    code,
+    code_verifier: verifier,
+    grant_type: "authorization_code",
+    redirect_uri: redirectUri
+  });
+  const token = normalizeToken(payload);
+  await writeToken(token);
+  return getCalendarState();
+}
+
+function normalizeGoogleEvent(event) {
+  const start = event.start?.dateTime || event.start?.date;
+  const end = event.end?.dateTime || event.end?.date || start;
+  return {
+    id: event.id,
+    title: event.summary || "제목 없는 일정",
+    start,
+    end,
+    allDay: Boolean(event.start?.date),
+    transparency: event.transparency || "opaque",
+    responseStatus: event.attendees?.find((attendee) => attendee.self)?.responseStatus || "accepted",
+    htmlLink: event.htmlLink || ""
+  };
+}
+
+async function fetchCalendarEvents() {
+  const config = await readGoogleConfig();
+  if (!config) {
+    return {
+      configured: false,
+      connected: false,
+      events: [],
+      error: "google-calendar-config.json에 Google OAuth Client ID를 설정해야 합니다."
+    };
+  }
+
+  const token = await refreshAccessToken(await readToken(), config);
+  if (!token?.accessToken) {
+    return { configured: true, connected: false, events: [] };
+  }
+
+  const url = new URL(GOOGLE_EVENTS_URL);
+  url.searchParams.set("singleEvents", "true");
+  url.searchParams.set("orderBy", "startTime");
+  url.searchParams.set("timeMin", new Date().toISOString());
+  url.searchParams.set("timeMax", new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString());
+  url.searchParams.set("maxResults", "10");
+
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${token.accessToken}` }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error?.message || "Google Calendar events request failed");
+  }
+
+  return {
+    configured: true,
+    connected: true,
+    events: (payload.items || []).map(normalizeGoogleEvent)
+  };
+}
+
+async function getCalendarState() {
+  const config = await readGoogleConfig();
+  if (!config) {
+    return {
+      configured: false,
+      connected: false,
+      events: [],
+      error: "google-calendar-config.json에 Google OAuth Client ID를 설정해야 합니다."
+    };
+  }
+
+  const token = await readToken();
+  if (!token?.refreshToken && !token?.accessToken) {
+    return { configured: true, connected: false, events: [] };
+  }
+
+  return fetchCalendarEvents();
+}
+
+ipcMain.handle("calendar:get-state", getCalendarState);
+ipcMain.handle("calendar:refresh", getCalendarState);
+ipcMain.handle("calendar:connect", connectGoogleCalendar);
+ipcMain.handle("calendar:disconnect", async () => {
+  await removeToken();
+  return getCalendarState();
 });

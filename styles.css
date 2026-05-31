@@ -177,8 +177,11 @@ button {
   right: 50%;
   bottom: 60px;
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  gap: 6px;
+  width: 184px;
   min-height: 36px;
   padding: 6px;
   border: 1px solid var(--line);
@@ -197,7 +200,7 @@ button {
 }
 
 .tiny-controls button {
-  min-width: 58px;
+  min-width: 56px;
   height: 28px;
   border: 0;
   border-radius: 6px;
@@ -207,9 +210,43 @@ button {
   cursor: pointer;
 }
 
+.tiny-controls button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
 #toggleButton {
   background: var(--mint);
   color: #121317;
+}
+
+#calendarButton {
+  display: grid;
+  width: 32px;
+  min-width: 32px;
+  place-items: center;
+  padding: 0;
+}
+
+#calendarButton img {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.time-badge.calendar-feedback {
+  animation: calendar-feedback 0.42s ease;
+}
+
+@keyframes calendar-feedback {
+  0%,
+  100% {
+    transform: translateX(-50%) scale(1);
+  }
+
+  50% {
+    transform: translateX(-50%) scale(1.035);
+  }
 }
 
 @media (max-width: 520px) {
