@@ -5,8 +5,8 @@ const http = require("node:http");
 const path = require("node:path");
 const { URL } = require("node:url");
 
-const WINDOW_WIDTH = 320;
-const WINDOW_HEIGHT = 520;
+const WINDOW_WIDTH = 220;
+const WINDOW_HEIGHT = 390;
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
