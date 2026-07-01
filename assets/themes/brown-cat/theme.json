@@ -1,0 +1,13 @@
+{
+  "id": "brown-cat",
+  "name": "Brown Cat",
+  "defaultState": "typing",
+  "states": {
+    "typing": {
+      "src": "./typing.apng",
+      "type": "apng",
+      "loop": true,
+      "durationMs": 840
+    }
+  }
+}

@@ -1,12 +1,11 @@
-const { app, BrowserWindow, ipcMain, screen, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, Menu, screen, shell } = require("electron");
 const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const http = require("node:http");
 const path = require("node:path");
 const { URL } = require("node:url");
 
-const WINDOW_WIDTH = 220;
-const WINDOW_HEIGHT = 390;
+const WINDOW_SIZE = { width: 280, height: 300 };
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
@@ -17,10 +16,10 @@ let mainWindow;
 function getInitialBounds() {
   const { workArea } = screen.getPrimaryDisplay();
   return {
-    width: WINDOW_WIDTH,
-    height: WINDOW_HEIGHT,
-    x: Math.round(workArea.x + workArea.width - WINDOW_WIDTH - 56),
-    y: Math.round(workArea.y + workArea.height - WINDOW_HEIGHT - 56)
+    width: WINDOW_SIZE.width,
+    height: WINDOW_SIZE.height,
+    x: Math.round(workArea.x + workArea.width - WINDOW_SIZE.width - 56),
+    y: Math.round(workArea.y + workArea.height - WINDOW_SIZE.height - 56)
   };
 }
 
@@ -67,6 +66,64 @@ ipcMain.on("move-window-by", (_event, delta) => {
     x: Math.round(bounds.x + delta.x),
     y: Math.round(bounds.y + delta.y)
   });
+});
+
+ipcMain.on("window:set-mode", (_event, mode) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.setSize(WINDOW_SIZE.width, WINDOW_SIZE.height);
+});
+
+ipcMain.on("context-menu:show", (event, state = {}) => {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  if (!window || window.isDestroyed()) return;
+
+  const send = (command) => {
+    if (!window.isDestroyed()) window.webContents.send("context-menu:command", command);
+  };
+
+  const menu = Menu.buildFromTemplate([
+    {
+      label: "고양이 테마",
+      submenu: [
+        {
+          label: "브라운 고양이",
+          type: "radio",
+          checked: state.selectedThemeId !== "black-cat",
+          click: () => send({ type: "select-theme", themeId: "brown-cat" })
+        },
+        {
+          label: "블랙 고양이",
+          type: "radio",
+          checked: state.selectedThemeId === "black-cat",
+          click: () => send({ type: "select-theme", themeId: "black-cat" })
+        }
+      ]
+    },
+    {
+      label: `타이핑 소리: ${state.typingSoundEnabled ? "ON" : "OFF"}`,
+      enabled: Boolean(state.running),
+      click: () => send({ type: "toggle-sound" })
+    },
+    {
+      label: state.calendarConnected ? "캘린더 연결 해제" : "캘린더 연결",
+      enabled: !state.calendarLoading,
+      click: () => send({ type: "toggle-calendar" })
+    },
+    {
+      label: state.running ? "일시정지" : state.elapsed > 0 ? "다시 시작" : "시작",
+      click: () => send({ type: "toggle-timer" })
+    },
+    {
+      label: "끝내기",
+      click: () => send({ type: "quit" })
+    }
+  ]);
+
+  menu.popup({ window });
+});
+
+ipcMain.on("app:quit", () => {
+  app.quit();
 });
 
 function getTokenPath() {
@@ -341,7 +398,16 @@ async function getCalendarState() {
     return { configured: true, connected: false, events: [] };
   }
 
-  return fetchCalendarEvents();
+  try {
+    return await fetchCalendarEvents();
+  } catch (error) {
+    return {
+      configured: true,
+      connected: true,
+      events: [],
+      error: error.message || "Google Calendar events request failed"
+    };
+  }
 }
 
 ipcMain.handle("calendar:get-state", getCalendarState);

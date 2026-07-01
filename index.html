@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Time Tracker</title>
-    <link rel="stylesheet" href="./styles.css?v=55" />
+    <link rel="stylesheet" href="./styles.css?v=78" />
   </head>
   <body>
     <main class="floating-widget" aria-label="Floating focus character">
@@ -15,20 +15,29 @@
       </div>
 
       <div class="agent-stage" aria-hidden="true">
-        <span class="agent-sprite"></span>
+        <img id="agentSprite" class="agent-sprite" alt="" decoding="async" />
         <span class="agent-shadow"></span>
       </div>
 
-      <div class="tiny-controls" aria-label="Work timer controls">
-        <button id="toggleButton" type="button">시작</button>
-        <button id="resetButton" type="button">끝내기</button>
-        <button id="calendarButton" type="button" aria-label="Google Calendar 연결" title="Google Calendar 연결">
-          <img src="./assets/icons/calendar.svg" alt="" aria-hidden="true" />
+      <div id="contextMenu" class="context-menu" role="menu" aria-hidden="true">
+        <div class="context-submenu" role="none">
+          <button id="menuCatButton" class="has-submenu" type="button" role="menuitem" aria-haspopup="true">고양이 테마</button>
+          <div class="context-submenu-panel" role="menu" aria-label="고양이 선택">
+            <button type="button" role="menuitemradio" data-theme-id="brown-cat">브라운 고양이</button>
+            <button type="button" role="menuitemradio" data-theme-id="black-cat">블랙 고양이</button>
+          </div>
+        </div>
+        <button id="menuSoundButton" class="toggle-menu-item" type="button" role="switch" aria-checked="true">
+          <span>타이핑 소리</span>
+          <strong>ON</strong>
         </button>
+        <button id="menuCalendarButton" type="button" role="menuitem">캘린더 연결</button>
+        <button id="menuToggleButton" type="button" role="menuitem">일시정지</button>
+        <button id="menuResetButton" type="button" role="menuitem">끝내기</button>
       </div>
     </main>
 
     <script src="./calendar-data.js?v=2" defer></script>
-    <script src="./main.js?v=55" defer></script>
+    <script src="./main.js?v=70" defer></script>
   </body>
 </html>

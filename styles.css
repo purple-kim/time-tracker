@@ -3,7 +3,7 @@
   --text: #f8f4ec;
   --panel: #111111;
   --line: #303030;
-  --mint: #8ee7c8;
+  --mint: #7ff734;
 }
 
 * {
@@ -26,11 +26,11 @@ body {
 }
 
 body.desktop-app .floating-widget {
-  top: 50%;
+  top: auto;
   left: 50%;
   right: auto;
-  bottom: auto;
-  transform: translate(-50%, -50%);
+  bottom: 8px;
+  transform: translateX(-50%);
 }
 
 button {
@@ -43,12 +43,24 @@ button {
   position: fixed;
   right: 24px;
   bottom: 24px;
-  width: min(180px, calc(100vw - 24px));
-  height: min(352px, calc(100vh - 24px));
+  width: min(180px, calc(100vw - 10px));
+  height: min(190px, calc(100vh - 10px));
   overflow: visible;
   cursor: grab;
   user-select: none;
   touch-action: none;
+}
+
+.floating-widget.bubble-visible,
+.floating-widget.calendar-alert-visible {
+  width: min(220px, calc(100vw - 10px));
+  height: min(285px, calc(100vh - 10px));
+}
+
+body.desktop-app .floating-widget.bubble-visible,
+body.desktop-app .floating-widget.calendar-alert-visible {
+  width: min(180px, calc(100vw - 10px));
+  height: min(190px, calc(100vh - 10px));
 }
 
 .floating-widget.dragging {
@@ -57,12 +69,13 @@ button {
 
 .agent-stage {
   position: absolute;
-  top: 90px;
-  left: 10px;
+  bottom: 18px;
+  left: 50%;
   width: 160px;
   height: 160px;
   display: grid;
   place-items: end center;
+  transform: translateX(-50%);
   transform-origin: 50% 86%;
 }
 
@@ -70,21 +83,14 @@ button {
   position: absolute;
   inset: 0;
   z-index: 1;
+  display: block;
   width: 100%;
   height: 100%;
-  background-image: url("./assets/frames/cat-expression-sprite-manual-single-12-gutter-160.png?v=2");
-  background-repeat: no-repeat;
-  background-size: 6240% 100%;
-  background-position: 0% 50%;
+  object-fit: contain;
   filter: drop-shadow(0 20px 18px rgba(0, 0, 0, 0.28));
   pointer-events: none;
   transform-origin: 50% 84%;
   will-change: opacity, transform;
-}
-
-.agent-sprite.typing {
-  background-image: url("./assets/frames/cat-typing-sprite-final.png?v=1");
-  background-size: 1000% 100%;
 }
 
 .agent-shadow {
@@ -101,7 +107,7 @@ button {
 
 .time-badge {
   position: absolute;
-  top: 6px;
+  top: -58px;
   left: 50%;
   z-index: 2;
   display: grid;
@@ -111,16 +117,32 @@ button {
   gap: 2px;
   padding: 8px 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 2px;
   background: var(--panel);
-  transform: translateX(-50%);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.22);
-  transition: max-width 0.18s ease, padding 0.18s ease;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(6px);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    4px 4px 0 rgba(0, 0, 0, 0.28);
+  transition:
+    max-width 0.18s ease,
+    opacity 0.16s ease,
+    padding 0.18s ease,
+    transform 0.16s ease,
+    visibility 0.16s ease;
+  visibility: hidden;
 }
 
+.floating-widget:hover .time-badge,
+.floating-widget.calendar-alert-visible .time-badge,
 .time-badge:hover,
 .time-badge:focus-within {
   max-width: 260px;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+  visibility: visible;
 }
 
 .time-badge::after {
@@ -138,15 +160,29 @@ button {
 
 .time-badge span {
   color: var(--mint);
-  font-size: 10px;
+  font-family: "Silkscreen", "Press Start 2P", "Pixelify Sans", "Courier New", monospace;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: 0;
+  line-height: 1.15;
+  text-shadow:
+    1px 0 0 rgba(142, 231, 200, 0.24),
+    0 1px 0 rgba(142, 231, 200, 0.18);
+  -webkit-font-smoothing: none;
+  font-smooth: never;
 }
 
 .time-badge strong {
-  font-size: 18px;
+  font-family: "Silkscreen", "Press Start 2P", "Pixelify Sans", "Courier New", monospace;
+  font-size: 20px;
   font-variant-numeric: tabular-nums;
+  font-weight: 900;
   line-height: 1;
+  text-shadow:
+    1px 0 0 rgba(248, 244, 236, 0.28),
+    0 1px 0 rgba(248, 244, 236, 0.18);
+  -webkit-font-smoothing: none;
+  font-smooth: never;
 }
 
 .time-badge small {
@@ -155,11 +191,17 @@ button {
   margin-top: 4px;
   overflow: hidden;
   color: rgba(248, 244, 236, 0.78);
+  font-family: "Silkscreen", "Press Start 2P", "Pixelify Sans", "Courier New", monospace;
   font-size: 10px;
-  font-weight: 400;
+  font-weight: 700;
   line-height: 1.25;
   text-overflow: ellipsis;
+  text-shadow:
+    1px 0 0 rgba(248, 244, 236, 0.18),
+    0 1px 0 rgba(248, 244, 236, 0.12);
   white-space: nowrap;
+  -webkit-font-smoothing: none;
+  font-smooth: never;
 }
 
 .time-badge:hover small,
@@ -172,66 +214,133 @@ button {
   word-break: keep-all;
 }
 
-.tiny-controls {
-  position: absolute;
-  right: 50%;
-  bottom: 60px;
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: 184px;
-  min-height: 36px;
-  padding: 6px;
-  border: 1px solid var(--line);
+.context-menu {
+  position: fixed;
+  z-index: 10;
+  top: 20px;
+  left: 20px;
+  display: none;
+  width: 190px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 8px;
-  background: var(--panel);
-  opacity: 0;
-  transform: translate(50%, 10px);
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  background: rgba(18, 19, 20, 0.94);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(14px);
   cursor: default;
 }
 
-.floating-widget:hover .tiny-controls,
-.tiny-controls:focus-within {
-  opacity: 1;
-  transform: translate(50%, 0);
+.context-menu[data-open="true"] {
+  display: grid;
 }
 
-.tiny-controls button {
-  min-width: 56px;
-  height: 28px;
+.context-menu button {
+  position: relative;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px 0 24px;
   border: 0;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.1);
+  background: transparent;
+  color: rgba(248, 244, 236, 0.9);
   font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
+  font-weight: 750;
+  text-align: left;
 }
 
-.tiny-controls button:disabled {
-  cursor: wait;
-  opacity: 0.62;
+.context-menu .toggle-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 8px;
 }
 
-#toggleButton {
+.toggle-menu-item strong {
+  display: inline-grid;
+  min-width: 34px;
+  height: 20px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  color: rgba(248, 244, 236, 0.72);
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.toggle-menu-item[aria-checked="true"] strong {
   background: var(--mint);
   color: #121317;
 }
 
-#calendarButton {
-  display: grid;
-  width: 32px;
-  min-width: 32px;
-  place-items: center;
-  padding: 0;
+.context-submenu {
+  position: relative;
 }
 
-#calendarButton img {
-  width: 18px;
-  height: 18px;
-  display: block;
+.context-submenu::after {
+  position: absolute;
+  top: -8px;
+  left: 100%;
+  width: 14px;
+  height: calc(100% + 16px);
+  content: "";
+}
+
+.context-menu[data-submenu-side="left"] .context-submenu::after {
+  right: 100%;
+  left: auto;
+}
+
+.has-submenu::after {
+  position: absolute;
+  right: 10px;
+  content: "›";
+  font-size: 18px;
+  line-height: 1;
+}
+
+.context-submenu-panel {
+  position: absolute;
+  top: -8px;
+  left: calc(100% + 10px);
+  display: none;
+  width: 172px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(18, 19, 20, 0.94);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(14px);
+}
+
+.context-menu[data-submenu-side="left"] .context-submenu-panel {
+  right: calc(100% + 10px);
+  left: auto;
+}
+
+.context-menu[data-submenu-ready="true"] .context-submenu:hover .context-submenu-panel,
+.context-submenu:focus-within .context-submenu-panel {
+  display: grid;
+}
+
+.context-menu button:hover,
+.context-menu button:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+  outline: 0;
+}
+
+.context-menu button[role="menuitemradio"][aria-checked="true"]::before {
+  position: absolute;
+  left: 8px;
+  content: "✓";
+}
+
+.context-menu button:disabled {
+  color: rgba(248, 244, 236, 0.42);
+  cursor: default;
+}
+
+.context-menu button:disabled:hover {
+  background: transparent;
 }
 
 .time-badge.calendar-feedback {
@@ -254,7 +363,13 @@ button {
     right: 8px;
     bottom: 8px;
     width: 180px;
-    height: 352px;
+    height: 190px;
+  }
+
+  body:not(.desktop-app) .floating-widget.bubble-visible,
+  body:not(.desktop-app) .floating-widget.calendar-alert-visible {
+    width: 220px;
+    height: 285px;
   }
 }
 

@@ -3,9 +3,12 @@ const els = {
   sprite: document.querySelector(".agent-sprite"),
   workTime: document.querySelector("#workTimeLabel"),
   calendar: document.querySelector("#calendarLabel"),
-  toggle: document.querySelector("#toggleButton"),
-  reset: document.querySelector("#resetButton"),
-  calendarButton: document.querySelector("#calendarButton")
+  contextMenu: document.querySelector("#contextMenu"),
+  menuThemeButtons: [...document.querySelectorAll("#contextMenu [data-theme-id]")],
+  menuSoundButton: document.querySelector("#menuSoundButton"),
+  menuToggleButton: document.querySelector("#menuToggleButton"),
+  menuResetButton: document.querySelector("#menuResetButton"),
+  menuCalendarButton: document.querySelector("#menuCalendarButton")
 };
 
 const isDesktopApp = Boolean(window.electronAgent?.moveWindowBy);
@@ -15,6 +18,69 @@ document.body.classList.toggle("desktop-app", isDesktopApp);
 const testMode = new URLSearchParams(window.location.search).get("test");
 const actionTestMode = testMode === "actions";
 const faceTestMode = testMode === "faces";
+const CAT_THEME_STORAGE_KEY = "focusAgentCatTheme";
+const TYPING_SOUND_STORAGE_KEY = "focusAgentTypingSound";
+let typingAudioContext = null;
+
+const catThemes = {
+  "black-cat": {
+    id: "black-cat",
+    name: "Black Cat",
+    states: {
+      typing: {
+        src: "./assets/themes/black-cat/typing.apng?v=2",
+        type: "apng",
+        loop: true,
+        durationMs: 840
+      }
+    }
+  },
+  "brown-cat": {
+    id: "brown-cat",
+    name: "Brown Cat",
+    states: {
+      typing: {
+        src: "./assets/themes/brown-cat/typing.apng?v=2",
+        type: "apng",
+        loop: true,
+        durationMs: 840
+      }
+    }
+  }
+};
+
+function readSavedCatTheme() {
+  try {
+    const savedTheme = localStorage.getItem(CAT_THEME_STORAGE_KEY);
+    return catThemes[savedTheme] ? savedTheme : "brown-cat";
+  } catch {
+    return "brown-cat";
+  }
+}
+
+function writeSavedCatTheme(themeId) {
+  try {
+    localStorage.setItem(CAT_THEME_STORAGE_KEY, themeId);
+  } catch {
+    // Theme persistence is optional; switching still works for the current session.
+  }
+}
+
+function readSavedTypingSound() {
+  try {
+    return localStorage.getItem(TYPING_SOUND_STORAGE_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+function writeSavedTypingSound(enabled) {
+  try {
+    localStorage.setItem(TYPING_SOUND_STORAGE_KEY, enabled ? "on" : "off");
+  } catch {
+    // Sound persistence is optional; the current session can still toggle it.
+  }
+}
 
 const actionSprites = {
   typing: {
@@ -73,14 +139,11 @@ const behaviorPolicy = {
 const preloadedSpriteImages = [];
 
 function preloadSpriteImages() {
-  [
-    expressionSprite.src,
-    ...Object.values(actionSprites).map((sprite) => sprite.src)
-  ].forEach((src) => {
+  Object.values(catThemes).forEach((theme) => {
     const img = new Image();
     img.decoding = "async";
     preloadedSpriteImages.push(img);
-    img.src = src;
+    img.src = theme.states.typing.src;
     if (img.decode) img.decode().catch(() => {});
   });
 }
@@ -90,7 +153,15 @@ const state = {
   elapsed: 0,
   timerId: null,
   animationTimerId: null,
+  soundTimerId: null,
+  calendarAlertTimerId: null,
+  notifiedCalendarAlerts: new Set(),
+  bubbleHover: false,
+  contextMenuOpen: false,
+  windowMode: "compact",
   activeFrame: null,
+  selectedThemeId: readSavedCatTheme(),
+  typingSoundEnabled: readSavedTypingSound(),
   frameIndex: 0,
   activeExpression: null,
   forcedFrame: null,
@@ -114,6 +185,17 @@ const state = {
     error: ""
   }
 };
+
+function syncWindowMode() {
+  const shouldExpand = state.bubbleHover || state.contextMenuOpen || Boolean(state.calendarAlertTimerId);
+  const nextMode = shouldExpand ? "expanded" : "compact";
+  els.widget.classList.toggle("bubble-visible", shouldExpand && !state.calendarAlertTimerId);
+  if (state.windowMode === nextMode) return;
+  state.windowMode = nextMode;
+  if (window.electronAgent?.setWindowMode) {
+    window.electronAgent.setWindowMode(nextMode);
+  }
+}
 
 function readSavedPosition() {
   try {
@@ -219,7 +301,40 @@ function hasUpcomingEventSoon(now = new Date()) {
   return msUntilStart >= 0 && msUntilStart <= 10 * 60 * 1000;
 }
 
+function getCalendarAlertKey(event, minutesBefore) {
+  return `${event.id || event.title}-${event.start}-${minutesBefore}`;
+}
+
+function showCalendarAlert(event, minutesBefore) {
+  window.clearTimeout(state.calendarAlertTimerId);
+  els.widget.classList.add("calendar-alert-visible");
+  els.calendar.textContent = `${minutesBefore}분 전 알림 ${event.title}`;
+  els.calendar.title = `${formatScheduleTime(event.startDate)} 시작 · ${event.title}`;
+  pulseCalendarFeedback();
+  state.calendarAlertTimerId = window.setTimeout(() => {
+    state.calendarAlertTimerId = null;
+    els.widget.classList.remove("calendar-alert-visible");
+    updateCalendarLabel();
+    syncWindowMode();
+  }, 12000);
+  syncWindowMode();
+}
+
+function checkCalendarAlerts(now = new Date()) {
+  const nextEvent = getNextTimedEvent(now);
+  if (!nextEvent) return;
+  const msUntilStart = nextEvent.startDate - now;
+  if (msUntilStart < 0 || msUntilStart > 10 * 60 * 1000) return;
+
+  const minutesBefore = msUntilStart <= 5 * 60 * 1000 ? 5 : 10;
+  const alertKey = getCalendarAlertKey(nextEvent, minutesBefore);
+  if (state.notifiedCalendarAlerts.has(alertKey)) return;
+  state.notifiedCalendarAlerts.add(alertKey);
+  showCalendarAlert(nextEvent, minutesBefore);
+}
+
 function updateCalendarLabel() {
+  if (state.calendarAlertTimerId) return;
   const events = getCalendarEvents();
   if (!events.length) {
     if (state.calendar.loading) {
@@ -266,21 +381,21 @@ function updateCalendarLabel() {
 
 function updateControls() {
   els.workTime.textContent = formatTime(state.elapsed);
-  els.toggle.textContent = state.running ? "일시정지" : state.elapsed > 0 ? "다시 시작" : "시작";
-  els.reset.textContent = state.running ? "끝내기" : state.elapsed > 0 ? "초기화" : "끝내기";
+  const toggleLabel = state.running ? "일시정지" : state.elapsed > 0 ? "다시 시작" : "시작";
   els.widget.classList.toggle("working", state.running);
-
-  if (!els.calendarButton) return;
-  els.calendarButton.hidden = !canConnectCalendar;
-  els.calendarButton.disabled = state.calendar.loading;
-  els.calendarButton.dataset.connected = state.calendar.connected ? "true" : "false";
-  els.calendarButton.setAttribute(
-    "aria-label",
-    state.calendar.connected ? "Google Calendar 연결 해제" : "Google Calendar 연결"
-  );
-  els.calendarButton.title = state.calendar.connected
-    ? "Google Calendar 연결 해제"
-    : "Google Calendar 연결";
+  els.menuThemeButtons.forEach((button) => {
+    const selected = button.dataset.themeId === state.selectedThemeId;
+    button.setAttribute("aria-checked", selected ? "true" : "false");
+  });
+  els.menuSoundButton.setAttribute("aria-checked", state.typingSoundEnabled ? "true" : "false");
+  els.menuSoundButton.disabled = !state.running;
+  els.menuSoundButton.querySelector("strong").textContent = state.typingSoundEnabled ? "ON" : "OFF";
+  els.menuToggleButton.textContent = toggleLabel;
+  els.menuResetButton.textContent = "끝내기";
+  els.menuCalendarButton.textContent = state.calendar.connected
+    ? "캘린더 연결 해제"
+    : "캘린더 연결";
+  els.menuCalendarButton.disabled = state.calendar.loading;
 }
 
 function showFrame(frame) {
@@ -308,6 +423,245 @@ function showSpriteFrame(sprite, frame) {
 
 function showTypingFrame(frame) {
   showSpriteFrame(actionSprites.typing, frame);
+}
+
+function getSelectedTheme() {
+  return catThemes[state.selectedThemeId] || catThemes["brown-cat"];
+}
+
+function showCurrentThemeTyping() {
+  const theme = getSelectedTheme();
+  const typing = theme.states.typing;
+  const activeKey = `${theme.id}:typing`;
+  if (state.activeFrame === activeKey) return;
+  els.sprite.classList.add("typing");
+  els.sprite.src = typing.src;
+  els.sprite.title = theme.name;
+  state.activeFrame = activeKey;
+}
+
+function stopTypingSoundLoop() {
+  if (!state.soundTimerId) return;
+  clearTimeout(state.soundTimerId);
+  state.soundTimerId = null;
+}
+
+function getTypingAudioContext() {
+  if (!typingAudioContext) {
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return null;
+    typingAudioContext = new AudioContextCtor();
+  }
+  if (typingAudioContext.state !== "running") {
+    typingAudioContext.resume();
+  }
+  return typingAudioContext;
+}
+
+function playKeyNoise(context, duration, frequency, q, gainValue, now) {
+  const length = Math.floor(context.sampleRate * duration);
+  const buffer = context.createBuffer(1, length, context.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let index = 0; index < length; index += 1) {
+    data[index] = (Math.random() * 2 - 1) * Math.exp(-index / (length * 0.2));
+  }
+
+  const source = context.createBufferSource();
+  const bandpass = context.createBiquadFilter();
+  const gain = context.createGain();
+  source.buffer = buffer;
+  bandpass.type = "bandpass";
+  bandpass.frequency.value = frequency;
+  bandpass.Q.value = q;
+  source.connect(bandpass);
+  bandpass.connect(gain);
+  gain.connect(context.destination);
+  gain.gain.setValueAtTime(gainValue, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  source.start(now);
+  source.stop(now + duration + 0.01);
+}
+
+function playKeyPress() {
+  const context = getTypingAudioContext();
+  if (!context) return;
+  const now = context.currentTime;
+  const intensity = 0.62 + Math.random() * 0.58;
+  const pitchDrift = 0.86 + Math.random() * 0.28;
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  oscillator.connect(gain);
+  gain.connect(context.destination);
+  oscillator.type = "square";
+  oscillator.frequency.setValueAtTime((1500 + Math.random() * 520) * pitchDrift, now);
+  oscillator.frequency.exponentialRampToValueAtTime((520 + Math.random() * 180) * pitchDrift, now + 0.014);
+  gain.gain.setValueAtTime(0.055 * intensity, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.018);
+  oscillator.start(now);
+  oscillator.stop(now + 0.02);
+
+  playKeyNoise(
+    context,
+    0.02 + Math.random() * 0.018,
+    (2700 + Math.random() * 1200) * pitchDrift,
+    0.55 + Math.random() * 0.35,
+    0.026 * intensity,
+    now
+  );
+
+  const thock = context.createOscillator();
+  const thockGain = context.createGain();
+  thock.connect(thockGain);
+  thockGain.connect(context.destination);
+  thock.type = "sine";
+  thock.frequency.setValueAtTime((120 + Math.random() * 55) * pitchDrift, now + 0.007);
+  thock.frequency.exponentialRampToValueAtTime((48 + Math.random() * 22) * pitchDrift, now + 0.04);
+  thockGain.gain.setValueAtTime(0, now);
+  thockGain.gain.setValueAtTime(0.045 * intensity, now + 0.007);
+  thockGain.gain.exponentialRampToValueAtTime(0.001, now + 0.055);
+  thock.start(now);
+  thock.stop(now + 0.065);
+}
+
+function playKeyRelease() {
+  const context = getTypingAudioContext();
+  if (!context) return;
+  const now = context.currentTime;
+  const intensity = 0.55 + Math.random() * 0.45;
+  const pitchDrift = 0.9 + Math.random() * 0.25;
+  const release = context.createOscillator();
+  const gain = context.createGain();
+  release.connect(gain);
+  gain.connect(context.destination);
+  release.type = "square";
+  release.frequency.setValueAtTime((1080 + Math.random() * 420) * pitchDrift, now);
+  release.frequency.exponentialRampToValueAtTime((430 + Math.random() * 160) * pitchDrift, now + 0.011);
+  gain.gain.setValueAtTime(0.025 * intensity, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.013);
+  release.start(now);
+  release.stop(now + 0.017);
+}
+
+function playTypingSound() {
+  if (!state.running || !state.typingSoundEnabled) return;
+  playKeyPress();
+  if (Math.random() > 0.18) {
+    window.setTimeout(playKeyRelease, 42 + Math.random() * 78);
+  }
+}
+
+function scheduleTypingSound() {
+  stopTypingSoundLoop();
+  if (!state.running || !state.typingSoundEnabled) return;
+  const burst = Math.random() > 0.72;
+  const delay = burst ? 70 + Math.random() * 75 : 145 + Math.random() * 205;
+  state.soundTimerId = setTimeout(() => {
+    playTypingSound();
+    scheduleTypingSound();
+  }, delay);
+}
+
+function toggleTypingSound() {
+  state.typingSoundEnabled = !state.typingSoundEnabled;
+  writeSavedTypingSound(state.typingSoundEnabled);
+  if (state.typingSoundEnabled) {
+    scheduleTypingSound();
+  } else {
+    stopTypingSoundLoop();
+  }
+  updateControls();
+}
+
+function selectCatTheme(themeId) {
+  if (!catThemes[themeId] || state.selectedThemeId === themeId) return;
+  state.selectedThemeId = themeId;
+  writeSavedCatTheme(themeId);
+  state.activeFrame = null;
+  showCurrentThemeTyping();
+  updateControls();
+}
+
+function closeContextMenu() {
+  state.contextMenuOpen = false;
+  els.contextMenu.dataset.open = "false";
+  els.contextMenu.dataset.submenuReady = "false";
+  els.contextMenu.setAttribute("aria-hidden", "true");
+  syncWindowMode();
+}
+
+function openContextMenu(event) {
+  event.preventDefault();
+  if (window.electronAgent?.showContextMenu) {
+    window.electronAgent.showContextMenu({
+      selectedThemeId: state.selectedThemeId,
+      typingSoundEnabled: state.typingSoundEnabled,
+      running: state.running,
+      elapsed: state.elapsed,
+      calendarConnected: state.calendar.connected,
+      calendarLoading: state.calendar.loading
+    });
+    return;
+  }
+  state.contextMenuOpen = true;
+  syncWindowMode();
+  els.contextMenu.dataset.open = "true";
+  els.contextMenu.dataset.submenuReady = "false";
+  state.contextMenuOpenedAt = { x: event.clientX, y: event.clientY };
+  els.contextMenu.style.visibility = "hidden";
+  const menuRect = els.contextMenu.getBoundingClientRect();
+  const submenuWidth = 196;
+  const left = Math.min(
+    Math.max(8, event.clientX),
+    window.innerWidth - menuRect.width - 8
+  );
+  const top = Math.min(
+    Math.max(8, event.clientY),
+    window.innerHeight - menuRect.height - 8
+  );
+  const opensLeft = left + menuRect.width + submenuWidth > window.innerWidth;
+  els.contextMenu.style.left = `${left}px`;
+  els.contextMenu.style.top = `${top}px`;
+  els.contextMenu.dataset.submenuSide = opensLeft ? "left" : "right";
+  els.contextMenu.style.visibility = "visible";
+  els.contextMenu.setAttribute("aria-hidden", "false");
+  updateControls();
+}
+
+function handleContextMenuCommand(command) {
+  if (!command?.type) return;
+  if (command.type === "select-theme") {
+    selectCatTheme(command.themeId);
+    return;
+  }
+  if (command.type === "toggle-sound") {
+    if (state.running) toggleTypingSound();
+    return;
+  }
+  if (command.type === "toggle-calendar") {
+    toggleCalendarConnection();
+    return;
+  }
+  if (command.type === "toggle-timer") {
+    toggle();
+    return;
+  }
+  if (command.type === "quit") {
+    endApp();
+  }
+}
+
+function endApp() {
+  if (window.electronAgent?.quitApp) {
+    window.electronAgent.quitApp();
+    return;
+  }
+  els.widget.hidden = true;
+}
+
+function showCalendarUnavailable() {
+  els.calendar.textContent = "앱에서 캘린더 연결 가능";
+  els.calendar.title = "Google Calendar 연결은 Electron 앱에서 사용할 수 있습니다.";
+  pulseCalendarFeedback();
 }
 
 function showExpression(expression, now = Date.now()) {
@@ -378,39 +732,10 @@ function chooseExpression(now = Date.now()) {
 }
 
 function animateAgent() {
-  const now = Date.now();
-
-  if (state.forcedFrame !== null) {
-    if (now < state.forcedFrameUntil) {
-      showFrame(state.forcedFrame);
-      return;
-    }
-    state.forcedFrame = null;
-    state.forcedFrameUntil = 0;
-  }
-
-  if (!state.running) {
-    state.activeExpression = null;
-    showFrame(state.elapsed > 0 ? frames.happy : frames.idle);
-    return;
-  }
-
-  if (now < state.expressionHoldUntil) {
-    updateActiveExpression(now);
-    return;
-  }
-
   state.activeExpression = null;
-
-  if (now >= state.nextExpressionAt) {
-    showExpression(chooseExpression(), now);
-    state.expressionHoldUntil = now + behaviorPolicy.expressionDuration;
-    state.nextExpressionAt = now + getNextEventInterval();
-    return;
-  }
-
-  showTypingFrame(state.frameIndex % 10);
-  state.frameIndex += 1;
+  state.forcedFrame = null;
+  state.forcedFrameUntil = 0;
+  showCurrentThemeTyping();
 }
 
 function tick() {
@@ -425,24 +750,21 @@ function toggle() {
   state.forcedFrame = null;
   state.forcedFrameUntil = 0;
   state.expressionHoldUntil = 0;
-  state.nextExpressionAt = Date.now() + behaviorPolicy.startDelay;
+  state.nextExpressionAt = 0;
   updateControls();
   animateAgent();
+  scheduleTypingSound();
 }
 
 function reset() {
-  if (state.running) {
-    state.running = false;
-    state.forcedFrame = frames.proud;
-    state.forcedFrameUntil = Date.now() + 2000;
-  } else {
-    state.elapsed = 0;
-    state.activeExpression = null;
-    state.forcedFrame = null;
-    state.forcedFrameUntil = 0;
-  }
+  state.running = false;
+  stopTypingSoundLoop();
+  state.elapsed = 0;
+  state.activeExpression = null;
+  state.forcedFrame = null;
+  state.forcedFrameUntil = 0;
   state.expressionHoldUntil = 0;
-  state.nextExpressionAt = Date.now() + behaviorPolicy.startDelay;
+  state.nextExpressionAt = 0;
   updateControls();
   animateAgent();
 }
@@ -473,7 +795,7 @@ function saveWidgetPosition() {
 }
 
 function startDrag(event) {
-  if (event.target.closest(".tiny-controls")) return;
+  if (event.button === 2 || event.target.closest(".context-menu")) return;
   const rect = els.widget.getBoundingClientRect();
   state.drag.active = true;
   state.drag.pointerId = event.pointerId ?? "mouse";
@@ -522,6 +844,7 @@ function applyCalendarState(nextState) {
   };
   updateControls();
   updateCalendarLabel();
+  checkCalendarAlerts();
 }
 
 function pulseCalendarFeedback() {
@@ -552,7 +875,11 @@ async function loadCalendarState() {
 }
 
 async function toggleCalendarConnection() {
-  if (!canConnectCalendar || state.calendar.loading) return;
+  if (state.calendar.loading) return;
+  if (!canConnectCalendar) {
+    showCalendarUnavailable();
+    return;
+  }
   state.calendar.loading = true;
   updateControls();
   updateCalendarLabel();
@@ -574,9 +901,50 @@ async function toggleCalendarConnection() {
   }
 }
 
-els.toggle.addEventListener("click", toggle);
-els.reset.addEventListener("click", reset);
-els.calendarButton?.addEventListener("click", toggleCalendarConnection);
+els.menuThemeButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    selectCatTheme(button.dataset.themeId);
+    closeContextMenu();
+  });
+});
+els.menuSoundButton.addEventListener("click", () => {
+  toggleTypingSound();
+  closeContextMenu();
+});
+els.menuToggleButton.addEventListener("click", () => {
+  toggle();
+  closeContextMenu();
+});
+els.menuResetButton.addEventListener("click", () => {
+  endApp();
+  closeContextMenu();
+});
+els.menuCalendarButton.addEventListener("click", () => {
+  toggleCalendarConnection();
+  closeContextMenu();
+});
+els.widget.addEventListener("contextmenu", openContextMenu);
+els.widget.addEventListener("mouseenter", () => {
+  state.bubbleHover = true;
+  syncWindowMode();
+});
+els.widget.addEventListener("mouseleave", () => {
+  state.bubbleHover = false;
+  syncWindowMode();
+});
+els.contextMenu.addEventListener("mousemove", (event) => {
+  const openedAt = state.contextMenuOpenedAt;
+  if (!openedAt || els.contextMenu.dataset.submenuReady === "true") return;
+  if (Math.hypot(event.clientX - openedAt.x, event.clientY - openedAt.y) > 6) {
+    els.contextMenu.dataset.submenuReady = "true";
+  }
+});
+window.addEventListener("click", (event) => {
+  if (!event.target.closest(".context-menu")) closeContextMenu();
+});
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeContextMenu();
+});
 els.widget.addEventListener("pointerdown", startDrag);
 els.widget.addEventListener("pointermove", moveDrag);
 els.widget.addEventListener("pointerup", endDrag);
@@ -597,10 +965,14 @@ setInterval(() => {
     return;
   }
   updateCalendarLabel();
+  checkCalendarAlerts();
 }, 60000);
 preloadSpriteImages();
+window.electronAgent?.onContextMenuCommand?.(handleContextMenuCommand);
 updateControls();
+syncWindowMode();
 loadCalendarState();
+checkCalendarAlerts();
 if (actionTestMode) {
   const testActions = [actionSprites.typing, frames.colaAction, frames.sleepyAction, frames.angryAction];
   let actionIndex = 0;
@@ -637,6 +1009,5 @@ if (actionTestMode) {
     showFrame(testFaces[faceIndex]);
   }, 1200);
 } else {
-  state.animationTimerId = setInterval(animateAgent, 100);
-  showFrame(frames.idle);
+  animateAgent();
 }
