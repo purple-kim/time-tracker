@@ -5,7 +5,7 @@ const http = require("node:http");
 const path = require("node:path");
 const { URL } = require("node:url");
 
-const WINDOW_SIZE = { width: 280, height: 300 };
+const WINDOW_SIZE = { width: 240, height: 300 };
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
@@ -42,6 +42,7 @@ function createWindow() {
   });
 
   mainWindow.setAlwaysOnTop(true, "floating");
+  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   mainWindow.loadFile(path.join(__dirname, "..", "index.html"), {
     query: { desktop: "1", v: "desktop" }
   });
@@ -86,16 +87,28 @@ ipcMain.on("context-menu:show", (event, state = {}) => {
       label: "고양이 테마",
       submenu: [
         {
-          label: "브라운 고양이",
+          label: "치즈",
           type: "radio",
-          checked: state.selectedThemeId !== "black-cat",
+          checked: state.selectedThemeId === "brown-cat",
           click: () => send({ type: "select-theme", themeId: "brown-cat" })
         },
         {
-          label: "블랙 고양이",
+          label: "까망",
           type: "radio",
           checked: state.selectedThemeId === "black-cat",
           click: () => send({ type: "select-theme", themeId: "black-cat" })
+        },
+        {
+          label: "삼색이",
+          type: "radio",
+          checked: state.selectedThemeId === "calico-cat",
+          click: () => send({ type: "select-theme", themeId: "calico-cat" })
+        },
+        {
+          label: "샴",
+          type: "radio",
+          checked: state.selectedThemeId === "siamese-cat",
+          click: () => send({ type: "select-theme", themeId: "siamese-cat" })
         }
       ]
     },

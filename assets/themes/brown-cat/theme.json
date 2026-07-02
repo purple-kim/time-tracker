@@ -1,6 +1,6 @@
 {
   "id": "brown-cat",
-  "name": "Brown Cat",
+  "name": "치즈",
   "defaultState": "typing",
   "states": {
     "typing": {

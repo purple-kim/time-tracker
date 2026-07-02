@@ -6,6 +6,22 @@
   --mint: #7ff734;
 }
 
+@property --alert-border-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes alert-border-spin {
+  0% {
+    --alert-border-angle: 0deg;
+  }
+
+  100% {
+    --alert-border-angle: 360deg;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -33,6 +49,16 @@ body.desktop-app .floating-widget {
   transform: translateX(-50%);
 }
 
+body.desktop-app::before {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  border: 2px solid #7ff734;
+  border-radius: 10px;
+  content: "";
+  pointer-events: none;
+}
+
 button {
   font: inherit;
   color: inherit;
@@ -49,6 +75,15 @@ button {
   cursor: grab;
   user-select: none;
   touch-action: none;
+}
+
+.floating-widget::before {
+  position: absolute;
+  inset: 0;
+  z-index: 998;
+  border: 1px dashed #ff3b3b;
+  content: "";
+  pointer-events: none;
 }
 
 .floating-widget.bubble-visible,
@@ -79,6 +114,15 @@ body.desktop-app .floating-widget.calendar-alert-visible {
   transform-origin: 50% 86%;
 }
 
+.agent-stage::after {
+  position: absolute;
+  inset: 0;
+  z-index: 997;
+  border: 1px dashed #3aa7ff;
+  content: "";
+  pointer-events: none;
+}
+
 .agent-sprite {
   position: absolute;
   inset: 0;
@@ -91,6 +135,7 @@ body.desktop-app .floating-widget.calendar-alert-visible {
   pointer-events: none;
   transform-origin: 50% 84%;
   will-change: opacity, transform;
+  outline: 1px solid rgba(255, 0, 255, 0.9);
 }
 
 .agent-shadow {
@@ -107,7 +152,8 @@ body.desktop-app .floating-widget.calendar-alert-visible {
 
 .time-badge {
   position: absolute;
-  top: -58px;
+  top: auto;
+  bottom: calc(100% - 22px);
   left: 50%;
   z-index: 2;
   display: grid;
@@ -115,6 +161,7 @@ body.desktop-app .floating-widget.calendar-alert-visible {
   max-width: 168px;
   justify-items: center;
   gap: 2px;
+  isolation: isolate;
   padding: 8px 12px;
   border: 1px solid var(--line);
   border-radius: 2px;
@@ -122,6 +169,7 @@ body.desktop-app .floating-widget.calendar-alert-visible {
   opacity: 0;
   pointer-events: none;
   transform: translateX(-50%) translateY(6px);
+  transform-origin: 50% 100%;
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.04),
     4px 4px 0 rgba(0, 0, 0, 0.28);
@@ -132,6 +180,45 @@ body.desktop-app .floating-widget.calendar-alert-visible {
     transform 0.16s ease,
     visibility 0.16s ease;
   visibility: hidden;
+}
+
+.time-badge::before {
+  position: absolute;
+  inset: -2px;
+  z-index: -1;
+  border-radius: 4px;
+  background: transparent;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+}
+
+.floating-widget.calendar-alert-visible .time-badge {
+  border-color: transparent;
+  box-shadow:
+    4px 4px 0 rgba(0, 0, 0, 0.3);
+}
+
+.floating-widget.calendar-alert-visible .time-badge::before {
+  background: conic-gradient(
+    from var(--alert-border-angle),
+    #7ff734 0%,
+    #e9e9f0 31%,
+    #a8ff6a 48%,
+    #00bbff 64%,
+    #7ff734 100%
+  );
+  padding: 2px;
+  opacity: 1;
+  animation: alert-border-spin 3s linear infinite;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
 }
 
 .floating-widget:hover .time-badge,
@@ -156,6 +243,11 @@ body.desktop-app .floating-widget.calendar-alert-visible {
   background: var(--panel);
   content: "";
   transform: translateX(-50%) rotate(45deg);
+}
+
+.floating-widget.calendar-alert-visible .time-badge::after {
+  border-right-color: rgba(127, 247, 52, 0.7);
+  border-bottom-color: rgba(127, 247, 52, 0.7);
 }
 
 .time-badge span {
@@ -187,7 +279,9 @@ body.desktop-app .floating-widget.calendar-alert-visible {
 
 .time-badge small {
   display: block;
+  width: 100%;
   max-width: 136px;
+  justify-self: stretch;
   margin-top: 4px;
   overflow: hidden;
   color: rgba(248, 244, 236, 0.78);
@@ -195,6 +289,7 @@ body.desktop-app .floating-widget.calendar-alert-visible {
   font-size: 10px;
   font-weight: 700;
   line-height: 1.25;
+  text-align: left;
   text-overflow: ellipsis;
   text-shadow:
     1px 0 0 rgba(248, 244, 236, 0.18),
@@ -205,13 +300,17 @@ body.desktop-app .floating-widget.calendar-alert-visible {
 }
 
 .time-badge:hover small,
-.time-badge:focus-within small {
+.time-badge:focus-within small,
+.floating-widget.calendar-alert-visible .time-badge small {
+  display: -webkit-box;
   max-width: 232px;
-  overflow: visible;
-  text-align: center;
-  text-overflow: clip;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  text-align: left;
+  text-overflow: ellipsis;
   white-space: normal;
-  word-break: keep-all;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .context-menu {

@@ -1,0 +1,13 @@
+{
+  "id": "calico-cat",
+  "name": "삼색이",
+  "defaultState": "typing",
+  "states": {
+    "typing": {
+      "src": "./typing.apng",
+      "type": "apng",
+      "loop": true,
+      "durationMs": 840
+    }
+  }
+}

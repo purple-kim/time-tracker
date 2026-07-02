@@ -20,27 +20,55 @@ const actionTestMode = testMode === "actions";
 const faceTestMode = testMode === "faces";
 const CAT_THEME_STORAGE_KEY = "focusAgentCatTheme";
 const TYPING_SOUND_STORAGE_KEY = "focusAgentTypingSound";
+const CALENDAR_REFRESH_INTERVAL_MS = 30000;
+const CALENDAR_ALERT_MEOW_SRC = "./assets/sounds/sweet-kitty-meow.mp3";
+const CALENDAR_ALERT_MEOW_RATE = 1.15;
 let typingAudioContext = null;
+let calendarAlertMeowAudio = null;
 
 const catThemes = {
-  "black-cat": {
-    id: "black-cat",
-    name: "Black Cat",
+  "brown-cat": {
+    id: "brown-cat",
+    name: "치즈",
     states: {
       typing: {
-        src: "./assets/themes/black-cat/typing.apng?v=2",
+        src: "./assets/themes/brown-cat/typing.apng?v=3",
         type: "apng",
         loop: true,
         durationMs: 840
       }
     }
   },
-  "brown-cat": {
-    id: "brown-cat",
-    name: "Brown Cat",
+  "black-cat": {
+    id: "black-cat",
+    name: "까망",
     states: {
       typing: {
-        src: "./assets/themes/brown-cat/typing.apng?v=2",
+        src: "./assets/themes/black-cat/typing.apng?v=3",
+        type: "apng",
+        loop: true,
+        durationMs: 840
+      }
+    }
+  },
+  "calico-cat": {
+    id: "calico-cat",
+    name: "삼색이",
+    states: {
+      typing: {
+        src: "./assets/themes/calico-cat/typing.apng?v=3",
+        type: "apng",
+        loop: true,
+        durationMs: 840
+      }
+    }
+  },
+  "siamese-cat": {
+    id: "siamese-cat",
+    name: "샴",
+    states: {
+      typing: {
+        src: "./assets/themes/siamese-cat/typing.apng?v=3",
         type: "apng",
         loop: true,
         durationMs: 840
@@ -155,6 +183,8 @@ const state = {
   animationTimerId: null,
   soundTimerId: null,
   calendarAlertTimerId: null,
+  calendarAlertScheduleTimerIds: [],
+  activeCalendarAlert: null,
   notifiedCalendarAlerts: new Set(),
   bubbleHover: false,
   contextMenuOpen: false,
@@ -179,6 +209,7 @@ const state = {
   },
   calendar: {
     loading: false,
+    refreshing: false,
     configured: false,
     connected: false,
     events: [],
@@ -291,7 +322,7 @@ function getCalendarEvents() {
 }
 
 function getNextTimedEvent(now = new Date()) {
-  return getCalendarEvents().find((event) => !event.allDay && event.startDate >= now);
+  return getCalendarEvents().find((event) => !event.allDay && event.startDate > now);
 }
 
 function hasUpcomingEventSoon(now = new Date()) {
@@ -305,14 +336,77 @@ function getCalendarAlertKey(event, minutesBefore) {
   return `${event.id || event.title}-${event.start}-${minutesBefore}`;
 }
 
-function showCalendarAlert(event, minutesBefore) {
+function clearCalendarAlert() {
   window.clearTimeout(state.calendarAlertTimerId);
+  state.calendarAlertTimerId = null;
+  state.activeCalendarAlert = null;
+  els.widget.classList.remove("calendar-alert-visible");
+  syncWindowMode();
+}
+
+function clearScheduledCalendarAlerts() {
+  state.calendarAlertScheduleTimerIds.forEach((timerId) => window.clearTimeout(timerId));
+  state.calendarAlertScheduleTimerIds = [];
+}
+
+function resumeTypingSoundAfterAlert() {
+  if (state.running && state.typingSoundEnabled) {
+    scheduleTypingSound();
+  }
+}
+
+function playCalendarAlertMeow() {
+  stopTypingSoundLoop();
+  if (!calendarAlertMeowAudio) {
+    calendarAlertMeowAudio = new Audio(CALENDAR_ALERT_MEOW_SRC);
+    calendarAlertMeowAudio.preload = "auto";
+  }
+
+  calendarAlertMeowAudio.pause();
+  calendarAlertMeowAudio.currentTime = 0;
+  calendarAlertMeowAudio.playbackRate = CALENDAR_ALERT_MEOW_RATE;
+  calendarAlertMeowAudio.onended = resumeTypingSoundAfterAlert;
+  calendarAlertMeowAudio.onerror = resumeTypingSoundAfterAlert;
+
+  const playPromise = calendarAlertMeowAudio.play();
+  if (playPromise) {
+    playPromise.catch(resumeTypingSoundAfterAlert);
+  }
+}
+
+function scheduleCalendarAlerts(now = new Date()) {
+  clearScheduledCalendarAlerts();
+  const nextEvent = getNextTimedEvent(now);
+  if (!nextEvent) return;
+
+  [10, 5].forEach((minutesBefore) => {
+    const alertAt = nextEvent.startDate.getTime() - minutesBefore * 60 * 1000;
+    const delay = alertAt - now.getTime();
+    if (delay < 0) return;
+
+    const timerId = window.setTimeout(() => {
+      checkCalendarAlerts(new Date());
+      scheduleCalendarAlerts(new Date());
+    }, delay + 50);
+    state.calendarAlertScheduleTimerIds.push(timerId);
+  });
+}
+
+function showCalendarAlert(event, minutesBefore) {
+  clearCalendarAlert();
   els.widget.classList.add("calendar-alert-visible");
   els.calendar.textContent = `${minutesBefore}분 전 알림 ${event.title}`;
   els.calendar.title = `${formatScheduleTime(event.startDate)} 시작 · ${event.title}`;
+  state.activeCalendarAlert = {
+    eventId: event.id || "",
+    start: event.start,
+    minutesBefore
+  };
   pulseCalendarFeedback();
+  playCalendarAlertMeow();
   state.calendarAlertTimerId = window.setTimeout(() => {
     state.calendarAlertTimerId = null;
+    state.activeCalendarAlert = null;
     els.widget.classList.remove("calendar-alert-visible");
     updateCalendarLabel();
     syncWindowMode();
@@ -331,6 +425,25 @@ function checkCalendarAlerts(now = new Date()) {
   if (state.notifiedCalendarAlerts.has(alertKey)) return;
   state.notifiedCalendarAlerts.add(alertKey);
   showCalendarAlert(nextEvent, minutesBefore);
+}
+
+function reconcileCalendarAlert(now = new Date()) {
+  if (!state.activeCalendarAlert || !state.calendarAlertTimerId) return false;
+  const nextEvent = getNextTimedEvent(now);
+  const activeAlert = state.activeCalendarAlert;
+  const sameEvent =
+    nextEvent &&
+    (activeAlert.eventId ? nextEvent.id === activeAlert.eventId : nextEvent.start === activeAlert.start) &&
+    nextEvent.start === activeAlert.start;
+
+  if (!sameEvent) {
+    clearCalendarAlert();
+    return true;
+  }
+
+  els.calendar.textContent = `${activeAlert.minutesBefore}분 전 알림 ${nextEvent.title}`;
+  els.calendar.title = `${formatScheduleTime(nextEvent.startDate)} 시작 · ${nextEvent.title}`;
+  return false;
 }
 
 function updateCalendarLabel() {
@@ -358,12 +471,6 @@ function updateCalendarLabel() {
   const now = new Date();
   const currentAllDay = events.find((event) => event.allDay && event.startDate <= now && now < event.endDate);
   const nextTimed = getNextTimedEvent(now);
-  const currentTimed = events.find((event) => !event.allDay && event.startDate <= now && now < event.endDate);
-
-  if (currentTimed) {
-    els.calendar.textContent = `진행 중 ${currentTimed.title}`;
-    return;
-  }
 
   if (nextTimed) {
     els.calendar.textContent = `${formatScheduleDateTime(nextTimed.startDate)} ${nextTimed.title}`;
@@ -373,10 +480,12 @@ function updateCalendarLabel() {
 
   if (currentAllDay) {
     els.calendar.textContent = `오늘 ${currentAllDay.title}`;
+    els.calendar.title = currentAllDay.title;
     return;
   }
 
   els.calendar.textContent = "다음 일정 없음";
+  els.calendar.removeAttribute("title");
 }
 
 function updateControls() {
@@ -837,14 +946,17 @@ function applyCalendarState(nextState) {
   state.calendar = {
     ...state.calendar,
     loading: false,
+    refreshing: false,
     configured: Boolean(nextState?.configured),
     connected: Boolean(nextState?.connected),
     events: nextState?.events || [],
     error: nextState?.error || ""
   };
   updateControls();
+  reconcileCalendarAlert();
   updateCalendarLabel();
   checkCalendarAlerts();
+  scheduleCalendarAlerts();
 }
 
 function pulseCalendarFeedback() {
@@ -855,13 +967,17 @@ function pulseCalendarFeedback() {
   badge.classList.add("calendar-feedback");
 }
 
-async function loadCalendarState() {
+async function loadCalendarState({ silent = false } = {}) {
   if (!canConnectCalendar) {
     updateCalendarLabel();
     return;
   }
-  state.calendar.loading = true;
-  updateCalendarLabel();
+  if (state.calendar.refreshing) return;
+  state.calendar.refreshing = true;
+  if (!silent) {
+    state.calendar.loading = true;
+    updateCalendarLabel();
+  }
   try {
     applyCalendarState(await window.electronAgent.getCalendarState());
   } catch (error) {
@@ -961,18 +1077,20 @@ window.addEventListener("resize", () => {
 state.timerId = setInterval(tick, 1000);
 setInterval(() => {
   if (state.calendar.connected && canConnectCalendar) {
-    loadCalendarState();
+    loadCalendarState({ silent: true });
     return;
   }
   updateCalendarLabel();
   checkCalendarAlerts();
-}, 60000);
+  scheduleCalendarAlerts();
+}, CALENDAR_REFRESH_INTERVAL_MS);
 preloadSpriteImages();
 window.electronAgent?.onContextMenuCommand?.(handleContextMenuCommand);
 updateControls();
 syncWindowMode();
 loadCalendarState();
 checkCalendarAlerts();
+scheduleCalendarAlerts();
 if (actionTestMode) {
   const testActions = [actionSprites.typing, frames.colaAction, frames.sleepyAction, frames.angryAction];
   let actionIndex = 0;
