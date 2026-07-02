@@ -49,16 +49,6 @@ body.desktop-app .floating-widget {
   transform: translateX(-50%);
 }
 
-body.desktop-app::before {
-  position: fixed;
-  inset: 0;
-  z-index: 999;
-  border: 2px solid #7ff734;
-  border-radius: 10px;
-  content: "";
-  pointer-events: none;
-}
-
 button {
   font: inherit;
   color: inherit;
@@ -75,15 +65,6 @@ button {
   cursor: grab;
   user-select: none;
   touch-action: none;
-}
-
-.floating-widget::before {
-  position: absolute;
-  inset: 0;
-  z-index: 998;
-  border: 1px dashed #ff3b3b;
-  content: "";
-  pointer-events: none;
 }
 
 .floating-widget.bubble-visible,
@@ -114,15 +95,6 @@ body.desktop-app .floating-widget.calendar-alert-visible {
   transform-origin: 50% 86%;
 }
 
-.agent-stage::after {
-  position: absolute;
-  inset: 0;
-  z-index: 997;
-  border: 1px dashed #3aa7ff;
-  content: "";
-  pointer-events: none;
-}
-
 .agent-sprite {
   position: absolute;
   inset: 0;
@@ -135,7 +107,6 @@ body.desktop-app .floating-widget.calendar-alert-visible {
   pointer-events: none;
   transform-origin: 50% 84%;
   will-change: opacity, transform;
-  outline: 1px solid rgba(255, 0, 255, 0.9);
 }
 
 .agent-shadow {
