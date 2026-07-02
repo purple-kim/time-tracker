@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu, screen, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell } = require("electron");
 const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const http = require("node:http");
@@ -320,6 +320,16 @@ async function requestAuthorizationCode(config) {
 async function connectGoogleCalendar() {
   const config = await readGoogleConfig();
   if (!config) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      await dialog.showMessageBox(mainWindow, {
+        type: "info",
+        title: "Google Calendar 설정 필요",
+        message: "Google Calendar 설정이 필요합니다.",
+        detail:
+          "캘린더를 연결하려면 google-calendar-config.json 파일에 Google OAuth Client ID를 설정해야 합니다.\n\n캘린더를 연결하지 않아도 타이머와 고양이 위젯은 사용할 수 있습니다.",
+        buttons: ["확인"]
+      });
+    }
     return {
       configured: false,
       connected: false,

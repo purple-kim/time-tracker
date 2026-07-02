@@ -6,7 +6,8 @@
   "main": "electron/main.cjs",
   "scripts": {
     "start": "electron .",
-    "pack:mac": "electron-builder --mac dir"
+    "pack:mac": "electron-builder --mac dir",
+    "dist:mac": "electron-builder --mac dmg"
   },
   "build": {
     "appId": "com.purplekim.timetracker",
@@ -29,8 +30,9 @@
       "category": "public.app-category.productivity",
       "icon": "build/icon.png",
       "target": [
-        "dir"
-      ]
+        "dmg"
+      ],
+      "artifactName": "Time-Tracker-${version}-${arch}.${ext}"
     }
   },
   "devDependencies": {
