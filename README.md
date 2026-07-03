@@ -22,6 +22,12 @@ Time Tracker는 macOS 앱 파일로 사용할 수 있습니다.
 1. [Time Tracker 다운로드 페이지](https://github.com/purple-kim/time-tracker/releases)에 들어갑니다.
 2. 가장 위에 있는 최신 버전을 엽니다.
 3. `Time-Tracker-...dmg` 파일을 다운로드합니다.
+
+   본인 Mac에 맞는 파일을 선택해 주세요.
+
+   - Apple Silicon Mac: `Time-Tracker-0.1.1-arm64.dmg`
+   - Intel Mac: `Time-Tracker-0.1.1-x64.dmg`
+
 4. 다운로드한 `.dmg` 파일을 더블 클릭합니다.
 5. 열린 창에서 `Time Tracker` 앱을 `Applications` 폴더로 드래그합니다.
 6. `Applications` 폴더에서 `Time Tracker`를 실행합니다.
