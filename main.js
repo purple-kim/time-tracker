@@ -305,6 +305,21 @@ function formatRelativeTime(ms) {
   return rest ? `${hours}시간 ${rest}분 후` : `${hours}시간 후`;
 }
 
+function getLocalDayBounds(date = new Date()) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(date);
+  end.setHours(23, 59, 59, 999);
+
+  return { start, end };
+}
+
+function isEventOnLocalDay(event, date = new Date()) {
+  const { start, end } = getLocalDayBounds(date);
+  return event.startDate <= end && event.endDate >= start;
+}
+
 function getCalendarEvents() {
   const localEvents = window.__FOCUS_AGENT_CALENDAR__?.events || [];
   const dynamicEvents = state.calendar.events || [];
@@ -318,11 +333,13 @@ function getCalendarEvents() {
       startDate: new Date(event.start),
       endDate: new Date(event.end)
     }))
+    .filter((event) => isEventOnLocalDay(event))
     .sort((a, b) => a.startDate - b.startDate);
 }
 
 function getNextTimedEvent(now = new Date()) {
-  return getCalendarEvents().find((event) => !event.allDay && event.startDate > now);
+  const { end } = getLocalDayBounds(now);
+  return getCalendarEvents().find((event) => !event.allDay && event.startDate > now && event.startDate <= end);
 }
 
 function hasUpcomingEventSoon(now = new Date()) {
@@ -462,7 +479,7 @@ function updateCalendarLabel() {
       els.calendar.textContent = "캘린더 연결 필요";
       els.calendar.title = "캘린더 버튼을 눌러 Google Calendar를 연결하세요.";
     } else {
-      els.calendar.textContent = "다음 일정 없음";
+      els.calendar.textContent = "오늘 일정 없음";
       els.calendar.removeAttribute("title");
     }
     return;
@@ -484,7 +501,7 @@ function updateCalendarLabel() {
     return;
   }
 
-  els.calendar.textContent = "다음 일정 없음";
+  els.calendar.textContent = "오늘 일정 없음";
   els.calendar.removeAttribute("title");
 }
 

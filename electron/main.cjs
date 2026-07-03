@@ -379,10 +379,13 @@ async function fetchCalendarEvents() {
   }
 
   const url = new URL(GOOGLE_EVENTS_URL);
+  const now = new Date();
+  const endOfToday = new Date(now);
+  endOfToday.setHours(23, 59, 59, 999);
   url.searchParams.set("singleEvents", "true");
   url.searchParams.set("orderBy", "startTime");
-  url.searchParams.set("timeMin", new Date().toISOString());
-  url.searchParams.set("timeMax", new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString());
+  url.searchParams.set("timeMin", now.toISOString());
+  url.searchParams.set("timeMax", endOfToday.toISOString());
   url.searchParams.set("maxResults", "10");
 
   const response = await fetch(url, {
