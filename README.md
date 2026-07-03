@@ -45,43 +45,7 @@ Time Tracker는 macOS 앱 파일로 사용할 수 있습니다.
 Google Calendar 연결은 선택 기능입니다.
 캘린더를 연결하지 않아도 타이머와 고양이 위젯은 사용할 수 있습니다.
 
-캘린더를 연결하려면 Google OAuth 설정 파일이 필요합니다.
-설정 파일이 없으면 앱에서 안내 메시지가 표시됩니다.
-
-### 1. Google OAuth 설정 만들기
-
-1. [Google Cloud Console](https://console.cloud.google.com/)에 접속합니다.
-2. 새 프로젝트를 만들거나 기존 프로젝트를 선택합니다.
-3. `API 및 서비스`에서 `Google Calendar API`를 사용 설정합니다.
-4. `OAuth 동의 화면`을 설정합니다.
-5. 사용자 유형은 `외부`를 선택합니다.
-6. 테스트 사용자에 본인 Google 이메일을 추가합니다.
-7. `사용자 인증 정보`에서 `OAuth 클라이언트 ID`를 만듭니다.
-8. 애플리케이션 유형은 `데스크톱 앱`을 선택합니다.
-9. 생성된 `클라이언트 ID`와 `클라이언트 보안 비밀번호`를 복사합니다.
-
-### 2. 캘린더 설정 파일 만들기
-
-프로젝트 폴더 안에 있는 `google-calendar-config.example.json` 파일을 복사합니다.
-
-복사한 파일 이름을 아래처럼 바꿉니다.
-
-```text
-google-calendar-config.json
-```
-
-`google-calendar-config.json` 파일을 열고 아래 값들을 본인이 발급받은 값으로 바꿉니다.
-
-```json
-{
-  "clientId": "여기에_클라이언트_ID",
-  "clientSecret": "여기에_클라이언트_보안_비밀번호"
-}
-```
-
-이 파일은 개인 설정 파일입니다. GitHub에 올리지 마세요.
-
-### 3. 앱에서 연결하기
+별도 설정 파일을 만들 필요 없이 앱에서 바로 연결할 수 있습니다.
 
 1. 앱을 실행합니다.
 2. 고양이 위젯 위에서 마우스 오른쪽 버튼을 누릅니다.
@@ -95,6 +59,27 @@ google-calendar-config.json
 다음 일정을 보여주기 위해 읽기 권한만 사용합니다.
 
 한 번 연결하면 앱을 껐다가 다시 켜도 연결 상태가 유지됩니다.
+
+### 개발자가 다른 Google OAuth 설정을 쓰고 싶다면
+
+기본 앱 설정 대신 직접 만든 Google OAuth Client ID를 쓰고 싶을 때만 `google-calendar-config.json` 파일을 사용할 수 있습니다.
+
+프로젝트 폴더 안에 있는 `google-calendar-config.example.json` 파일을 복사한 뒤, 파일 이름을 아래처럼 바꿉니다.
+
+```text
+google-calendar-config.json
+```
+
+그리고 본인이 발급받은 값을 넣습니다.
+
+```json
+{
+  "clientId": "여기에_클라이언트_ID",
+  "clientSecret": ""
+}
+```
+
+이 파일은 개인 설정 파일입니다. GitHub에 올리지 마세요.
 
 ## 개발용으로 실행하기
 
