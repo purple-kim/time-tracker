@@ -1,6 +1,6 @@
 {
   "name": "time-tracker",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "A floating desktop pomodoro companion with an animated cat.",
   "main": "electron/main.cjs",
