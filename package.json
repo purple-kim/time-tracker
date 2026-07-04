@@ -18,7 +18,7 @@
       "styles.css",
       "main.js",
       "calendar-data.js",
-      "google-calendar-config.json",
+      "google-calendar-build-config.json",
       "google-calendar-config.example.json",
       "electron/**/*",
       "assets/**/*",

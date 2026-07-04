@@ -1,4 +1,4 @@
 {
   "clientId": "YOUR_GOOGLE_OAUTH_DESKTOP_CLIENT_ID.apps.googleusercontent.com",
-  "clientSecret": "YOUR_GOOGLE_OAUTH_DESKTOP_CLIENT_SECRET"
+  "tokenProxyUrl": "https://YOUR_VERCEL_PROJECT.vercel.app/api/google/token"
 }

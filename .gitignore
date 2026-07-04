@@ -19,3 +19,4 @@ yarn-error.log*
 .env.*
 
 google-calendar-config.json
+google-calendar-build-config.json

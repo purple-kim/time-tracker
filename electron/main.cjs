@@ -11,6 +11,7 @@ const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 const GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
 const DEFAULT_GOOGLE_CLIENT_ID = "283154573553-tkdvcr8nlkd2f1vm86tspilsrhdn5aoq.apps.googleusercontent.com";
+const DEFAULT_GOOGLE_TOKEN_PROXY_URL = "";
 
 let mainWindow;
 
@@ -155,26 +156,37 @@ async function readJsonFile(filePath) {
 async function readGoogleConfig() {
   const candidates = [
     path.join(app.getPath("userData"), "google-calendar-config.json"),
-    path.join(app.getAppPath(), "google-calendar-config.json"),
+    path.join(app.getAppPath(), "google-calendar-build-config.json"),
     path.join(process.cwd(), "google-calendar-config.json")
   ];
 
   for (const candidate of candidates) {
     const config = await readJsonFile(candidate);
     if (config?.clientId && !config.clientId.includes("YOUR_GOOGLE")) {
-      return { clientId: config.clientId, clientSecret: config.clientSecret || "", path: candidate };
+      return {
+        clientId: config.clientId,
+        clientSecret: config.clientSecret || "",
+        tokenProxyUrl: config.tokenProxyUrl || "",
+        path: candidate
+      };
     }
     if (config?.installed?.client_id && !config.installed.client_id.includes("YOUR_GOOGLE")) {
       return {
         clientId: config.installed.client_id,
         clientSecret: config.installed.client_secret || "",
+        tokenProxyUrl: config.tokenProxyUrl || "",
         path: candidate
       };
     }
   }
 
   if (DEFAULT_GOOGLE_CLIENT_ID) {
-    return { clientId: DEFAULT_GOOGLE_CLIENT_ID, clientSecret: "", path: "built-in" };
+    return {
+      clientId: DEFAULT_GOOGLE_CLIENT_ID,
+      clientSecret: "",
+      tokenProxyUrl: DEFAULT_GOOGLE_TOKEN_PROXY_URL,
+      path: "built-in"
+    };
   }
 
   return null;
@@ -251,6 +263,37 @@ async function postForm(url, data) {
   return payload;
 }
 
+async function postJson(url, data) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    await writeDebugLog("Google token proxy request failed", {
+      url,
+      status: response.status,
+      error: payload.error || "",
+      errorDescription: payload.error_description || ""
+    });
+    throw new Error(payload.error_description || payload.error || "Google token proxy request failed");
+  }
+  return payload;
+}
+
+async function requestGoogleToken(config, googleData, proxyData) {
+  if (config.tokenProxyUrl) {
+    return postJson(config.tokenProxyUrl, proxyData);
+  }
+
+  return postForm(GOOGLE_TOKEN_URL, {
+    client_id: config.clientId,
+    ...(config.clientSecret ? { client_secret: config.clientSecret } : {}),
+    ...googleData
+  });
+}
+
 function normalizeToken(payload, previousToken = {}) {
   return {
     accessToken: payload.access_token || previousToken.accessToken,
@@ -261,17 +304,25 @@ function normalizeToken(payload, previousToken = {}) {
   };
 }
 
+function hasTokenExchangeConfig(config) {
+  return Boolean(config?.tokenProxyUrl || config?.clientSecret);
+}
+
 async function refreshAccessToken(token, config) {
   if (!token?.refreshToken) return null;
   if (token.accessToken && token.expiresAt && token.expiresAt - Date.now() > 60 * 1000) {
     return token;
   }
+  if (!hasTokenExchangeConfig(config)) {
+    throw new Error("Google Calendar 연결 서버 설정이 필요합니다.");
+  }
 
-  const payload = await postForm(GOOGLE_TOKEN_URL, {
-    client_id: config.clientId,
-    ...(config.clientSecret ? { client_secret: config.clientSecret } : {}),
+  const payload = await requestGoogleToken(config, {
     refresh_token: token.refreshToken,
     grant_type: "refresh_token"
+  }, {
+    grantType: "refresh_token",
+    refreshToken: token.refreshToken
   });
   const refreshedToken = normalizeToken(payload, token);
   await writeToken(refreshedToken);
@@ -376,16 +427,24 @@ async function connectGoogleCalendar() {
     await writeDebugLog("Google Calendar connect started", {
       configPath: config.path,
       clientIdPrefix: config.clientId.slice(0, 18),
-      hasClientSecret: Boolean(config.clientSecret)
+      hasClientSecret: Boolean(config.clientSecret),
+      hasTokenProxy: Boolean(config.tokenProxyUrl)
     });
+    if (!hasTokenExchangeConfig(config)) {
+      throw new Error("Google Calendar 연결 서버 설정이 필요합니다.");
+    }
+
     const { code, verifier, redirectUri } = await requestAuthorizationCode(config);
-    const payload = await postForm(GOOGLE_TOKEN_URL, {
-      client_id: config.clientId,
-      ...(config.clientSecret ? { client_secret: config.clientSecret } : {}),
+    const payload = await requestGoogleToken(config, {
       code,
       code_verifier: verifier,
       grant_type: "authorization_code",
       redirect_uri: redirectUri
+    }, {
+      grantType: "authorization_code",
+      code,
+      codeVerifier: verifier,
+      redirectUri
     });
     const token = normalizeToken(payload);
     await writeToken(token);
