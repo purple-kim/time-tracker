@@ -197,6 +197,33 @@ async function removeToken() {
   }
 }
 
+function getDebugLogPath() {
+  return path.join(app.getPath("userData"), "time-tracker-debug.log");
+}
+
+function sanitizeLogMessage(value) {
+  return String(value)
+    .replace(/(code=)[^&\s]+/gi, "$1[redacted]")
+    .replace(/(access_token=)[^&\s]+/gi, "$1[redacted]")
+    .replace(/(refresh_token=)[^&\s]+/gi, "$1[redacted]")
+    .replace(/(client_secret=)[^&\s]+/gi, "$1[redacted]");
+}
+
+async function writeDebugLog(message, details = {}) {
+  try {
+    await fs.mkdir(app.getPath("userData"), { recursive: true });
+    const safeDetails = Object.fromEntries(
+      Object.entries(details).map(([key, value]) => [key, sanitizeLogMessage(value)])
+    );
+    await fs.appendFile(
+      getDebugLogPath(),
+      `${new Date().toISOString()} ${sanitizeLogMessage(message)} ${JSON.stringify(safeDetails)}\n`
+    );
+  } catch {
+    // Debug logging must never interrupt the app.
+  }
+}
+
 function createCodeVerifier() {
   return crypto.randomBytes(64).toString("base64url");
 }
@@ -213,6 +240,12 @@ async function postForm(url, data) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
+    await writeDebugLog("Google API form request failed", {
+      url,
+      status: response.status,
+      error: payload.error || "",
+      errorDescription: payload.error_description || ""
+    });
     throw new Error(payload.error_description || payload.error || "Google API request failed");
   }
   return payload;
@@ -258,14 +291,15 @@ function createOAuthServer(expectedState, resolve, reject) {
     const code = requestUrl.searchParams.get("code");
     const state = requestUrl.searchParams.get("state");
 
+    const errorDescription = requestUrl.searchParams.get("error_description");
     response.writeHead(error ? 400 : 200, { "Content-Type": "text/html; charset=utf-8" });
     response.end(`
       <!doctype html>
       <html lang="ko">
         <head><meta charset="utf-8"><title>Time Tracker</title></head>
         <body style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 32px;">
-          <h1>${error ? "연결 실패" : "연결 완료"}</h1>
-          <p>${error ? "Google Calendar 연결을 완료하지 못했습니다." : "이 창을 닫고 Time Tracker로 돌아가세요."}</p>
+          <h1>${error ? "브라우저 인증 실패" : "브라우저 인증 완료"}</h1>
+          <p>${error ? "Google Calendar 인증을 완료하지 못했습니다." : "이 창을 닫고 Time Tracker에서 연결 상태를 확인하세요."}</p>
         </body>
       </html>
     `);
@@ -273,10 +307,15 @@ function createOAuthServer(expectedState, resolve, reject) {
     server.close();
 
     if (error) {
-      reject(new Error(error));
+      writeDebugLog("Google OAuth callback failed", { error, errorDescription });
+      reject(new Error(errorDescription || error));
       return;
     }
     if (!code || state !== expectedState) {
+      writeDebugLog("Google OAuth callback invalid response", {
+        hasCode: Boolean(code),
+        stateMatched: state === expectedState
+      });
       reject(new Error("Invalid Google OAuth response"));
       return;
     }
@@ -333,18 +372,39 @@ async function connectGoogleCalendar() {
     };
   }
 
-  const { code, verifier, redirectUri } = await requestAuthorizationCode(config);
-  const payload = await postForm(GOOGLE_TOKEN_URL, {
-    client_id: config.clientId,
-    ...(config.clientSecret ? { client_secret: config.clientSecret } : {}),
-    code,
-    code_verifier: verifier,
-    grant_type: "authorization_code",
-    redirect_uri: redirectUri
-  });
-  const token = normalizeToken(payload);
-  await writeToken(token);
-  return getCalendarState();
+  try {
+    await writeDebugLog("Google Calendar connect started", {
+      configPath: config.path,
+      clientIdPrefix: config.clientId.slice(0, 18),
+      hasClientSecret: Boolean(config.clientSecret)
+    });
+    const { code, verifier, redirectUri } = await requestAuthorizationCode(config);
+    const payload = await postForm(GOOGLE_TOKEN_URL, {
+      client_id: config.clientId,
+      ...(config.clientSecret ? { client_secret: config.clientSecret } : {}),
+      code,
+      code_verifier: verifier,
+      grant_type: "authorization_code",
+      redirect_uri: redirectUri
+    });
+    const token = normalizeToken(payload);
+    await writeToken(token);
+    await writeDebugLog("Google Calendar token saved", {
+      hasAccessToken: Boolean(token.accessToken),
+      hasRefreshToken: Boolean(token.refreshToken)
+    });
+    return getCalendarState();
+  } catch (error) {
+    await writeDebugLog("Google Calendar connect failed", {
+      error: error.message || "Unknown error"
+    });
+    return {
+      configured: true,
+      connected: false,
+      events: [],
+      error: error.message || "Google Calendar 연결에 실패했습니다."
+    };
+  }
 }
 
 function normalizeGoogleEvent(event) {

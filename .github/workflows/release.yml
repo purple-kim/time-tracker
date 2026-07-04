@@ -30,6 +30,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Prepare Google OAuth config
+        env:
+          GOOGLE_OAUTH_CLIENT_ID: 283154573553-tkdvcr8nlkd2f1vm86tspilsrhdn5aoq.apps.googleusercontent.com
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+        run: |
+          if [ -z "$GOOGLE_OAUTH_CLIENT_SECRET" ]; then
+            echo "GOOGLE_OAUTH_CLIENT_SECRET is not set."
+            exit 1
+          fi
+
+          node -e 'const fs = require("fs"); fs.writeFileSync("google-calendar-config.json", JSON.stringify({ clientId: process.env.GOOGLE_OAUTH_CLIENT_ID, clientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET }, null, 2));'
+
       - name: Build DMG
         run: npm run dist:mac -- --${{ matrix.arch }} --publish never
 
